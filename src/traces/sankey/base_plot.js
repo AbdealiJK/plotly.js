@@ -13,6 +13,12 @@ var getModuleCalcData = require('../../plots/get_data').getModuleCalcData;
 var plot = require('./plot');
 var fxAttrs = require('../../components/fx/layout_attributes');
 
+var setCursor = require('../../lib/setcursor');
+var dragElement = require('../../components/dragelement');
+var prepSelect = require('../../plots/cartesian/select').prepSelect;
+var Lib = require('../../lib');
+var Plotly = require('../../plot_api/plot_api');
+
 var SANKEY = 'sankey';
 
 exports.name = SANKEY;
@@ -32,5 +38,93 @@ exports.clean = function(newFullData, newFullLayout, oldFullData, oldFullLayout)
 
     if(hadPlot && !hasPlot) {
         oldFullLayout._paperdiv.selectAll('.sankey').remove();
+    }
+};
+
+var oldDragOptions;
+var dragOptions;
+exports.updateFx = function(gd) {
+    var fullLayout = gd._fullLayout;
+    var dragMode = fullLayout.dragmode;
+    var clickMode = fullLayout.clickmode;
+    var cursor = fullLayout.dragmode === 'pan' ? 'move' : 'crosshair';
+
+    for(var i = 0; i < gd._fullData.length; i++) {
+        var fullData = gd._fullData[i];
+        var bgRect = fullData._bgRect;
+
+        setCursor(fullLayout._draggers, cursor);
+
+        var fillRangeItems;
+
+        if(dragMode === 'select') {
+            fillRangeItems = function(eventData, poly) {
+                var oldGroups = fullData.node.groups.slice();
+                var nodes = fullData._sankey.graph.nodes;
+                for(var j = 0; j < nodes.length; j++) {
+                    var node = nodes[j];
+                    if(node.partOfGroup) continue; // Those are invisible
+                    var doNotOverlap = poly.xmin > node.x1 || poly.xmax < node.x0 || poly.ymin > node.y1 || poly.ymax < node.y0;
+                    if(!doNotOverlap) {
+                        // If the node represents a group
+                        if(node.group) {
+                            // Add all its children to the current selection
+                            for(var k = 0; k < node.childrenNodes.length; k++) {
+                                eventData.points.push(node.childrenNodes[k].pointNumber);
+                            }
+                            // Remove it from the existing list of groups
+                            oldGroups[node.pointNumber - gd._fullData[i].node._count] = false;
+                        } else {
+                            eventData.points.push(node.pointNumber);
+                        }
+                    }
+                }
+                var newGroups = oldGroups.filter(function(g) { return g;}).concat([eventData.points]);
+                return Plotly._guiRestyle(gd, 'node.groups', [ newGroups ]).catch(function() {});
+            };
+        } else if(dragMode === 'lasso') {
+            Lib.warn('Lasso mode is not yet supported.');
+        }
+
+        var xaxis = {
+            _id: 'x',
+            c2p: function(v) { return v; },
+            _offset: bgRect.node().getAttribute('x'),
+            _length: gd._fullLayout.width
+        };
+        var yaxis = {
+            _id: 'y',
+            c2p: function(v) { return v; },
+            _offset: bgRect.node().getAttribute('y'),
+            _length: gd._fullLayout.height
+        };
+
+        // Note: dragOptions is needed to be declared for all dragmodes because
+        // it's the object that holds persistent selection state.
+        oldDragOptions = dragOptions;
+        dragOptions = Lib.extendDeep(oldDragOptions || {}, {
+            gd: gd,
+            element: bgRect.node(),
+            plotinfo: {
+                id: i, // TODO: use uid
+                xaxis: xaxis,
+                yaxis: yaxis,
+                fillRangeItems: fillRangeItems
+            },
+            // create mock x/y axes for hover routine
+            xaxes: [xaxis],
+            yaxes: [yaxis],
+            clickFn: function(numClicks) {
+                if(numClicks === 2) {
+                    return Plotly._guiRestyle(gd, 'node.groups', [[[]]]);
+                }
+            }
+        });
+
+        dragOptions.prepFn = function(e, startX, startY) {
+            prepSelect(e, startX, startY, dragOptions, dragMode);
+        };
+
+        dragElement.init(dragOptions);
     }
 };

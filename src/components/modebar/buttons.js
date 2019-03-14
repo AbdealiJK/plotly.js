@@ -513,6 +513,16 @@ function toggleHover(gd) {
     Registry.call('_guiRelayout', gd, 'hovermode', newHover);
 }
 
+modeBarButtons.resetSankeyGroup = {
+    name: 'resetSankeyGroup',
+    title: function(gd) { return _(gd, 'Ungroup all'); },
+    icon: Icons.home,
+    click: function(gd) {
+        console.log('ungrouping');
+        Registry.call('_guiRestyle', gd, 'node.groups', []);
+    }
+};
+
 // buttons when more then one plot types are present
 
 modeBarButtons.toggleHover = {
